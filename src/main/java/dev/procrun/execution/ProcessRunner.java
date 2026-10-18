@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.concurrent.*;
 
 /**
  * Will own bounded execution resources, output capture, and direct child processes.
@@ -22,40 +23,54 @@ import java.util.OptionalLong;
  */
 @RequiredArgsConstructor
 public class ProcessRunner {
+
     private final RunnerOptions options;
 
     /** A started direct child and its output file; lifecycle ownership stays with the runner. */
     record StartedJob(Process process, Path outputFile) {}
 
     /** Executes sequentially in input order; interruption propagates after cleaning up the active child. */
-    public List<JobResult> execute(List<JobSpec> jobs) throws IOException, InterruptedException {
+    public List<JobResult> execute(List<JobSpec> jobs) {
+       List<Future<JobResult>> futureJobs = new ArrayList<>();
+       ThreadPoolExecutor executor = getExecutor(options);
         var results = new ArrayList<JobResult>();
         for (JobSpec job : jobs) {
-            long started = System.nanoTime();
-            StartedJob startedJob;
+            futureJobs.add(executor.submit(() -> runJob(job)));
+        }
+        for (Future<JobResult> futureJob : futureJobs) {
             try {
-                startedJob = startJob(job);
-            } catch (IOException e) {
-                results.add(new JobResult(job.jobId(), OptionalLong.empty(), JobStatus.FAILED,
-                        OptionalInt.empty(), Duration.ofNanos(System.nanoTime() - started),
-                        Optional.empty(), Optional.of(e.toString())));
-                continue;
-            }
-            Process process = startedJob.process();
-            try {
-                int exitCode = process.waitFor();
-                results.add(new JobResult(job.jobId(), OptionalLong.of(process.pid()),
-                        exitCode == 0 ? JobStatus.SUCCESS : JobStatus.FAILED,
-                        OptionalInt.of(exitCode), Duration.ofNanos(System.nanoTime() - started),
-                        Optional.of(startedJob.outputFile()), Optional.empty()));
-            } finally {
-                if (process.isAlive()) {
-                    process.destroyForcibly();
-                    process.waitFor();
-                }
+                results.add(futureJob.get());
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException(e);
             }
         }
         return results;
+    }
+
+    private JobResult runJob(JobSpec job) throws IOException, InterruptedException {
+
+        long started = System.nanoTime();
+        StartedJob startedJob;
+        try {
+            startedJob = startJob(job);
+        } catch (IOException e) {
+            return new JobResult(job.jobId(), OptionalLong.empty(), JobStatus.FAILED,
+                    OptionalInt.empty(), Duration.ofNanos(System.nanoTime() - started),
+                    Optional.empty(), Optional.of(e.toString()));
+        }
+        Process process = startedJob.process();
+        try {
+            int exitCode = process.waitFor();
+            return new JobResult(job.jobId(), OptionalLong.of(process.pid()),
+                    exitCode == 0 ? JobStatus.SUCCESS : JobStatus.FAILED,
+                    OptionalInt.of(exitCode), Duration.ofNanos(System.nanoTime() - started),
+                    Optional.of(startedJob.outputFile()), Optional.empty());
+        } finally {
+            if (process.isAlive()) {
+                process.destroyForcibly();
+                process.waitFor();
+            }
+        }
     }
 
     private StartedJob startJob(JobSpec job) throws IOException {
@@ -82,5 +97,15 @@ public class ProcessRunner {
     /** Will stop admission, clean up direct children, and release owned execution resources. */
     public void shutdown() throws InterruptedException {
         throw new UnsupportedOperationException("Not implemented yet");
+    }
+
+    private static ThreadPoolExecutor getExecutor(RunnerOptions options) {
+        return new ThreadPoolExecutor(
+                options.maxParallelProcesses(),
+                options.maxParallelProcesses(),
+                0L,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(options.waitingQueueCapacity())
+        );
     }
 }
