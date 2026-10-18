@@ -1,0 +1,3 @@
+greeting	/bin/echo	Hello from ProcRun
+system	/usr/bin/uname	-s
+location	/bin/pwd

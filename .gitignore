@@ -1,0 +1,17 @@
+/target/
+/output/
+/logs/
+*.log
+hs_err_pid*
+replay_pid*
+*.hprof
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.classpath
+.project
+.settings/
+/bin/
+.DS_Store
