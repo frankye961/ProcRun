@@ -15,11 +15,17 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
-import java.util.concurrent.*;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
- * Will own bounded execution resources, output capture, and direct child processes.
- * The caller owns this runner's lifecycle and must invoke shutdown when finished.
+ * Owns each batch's bounded executor, output capture, and direct child processes.
+ * execute() releases batch resources before returning; external shutdown is still unimplemented.
  */
 @RequiredArgsConstructor
 public class ProcessRunner {
@@ -29,26 +35,28 @@ public class ProcessRunner {
     /** A started direct child and its output file; lifecycle ownership stays with the runner. */
     record StartedJob(Process process, Path outputFile) {}
 
-    /** Executes sequentially in input order; interruption propagates after cleaning up the active child. */
+    /** Executes with bounded admission and parallelism; cleans up before propagating interruption. */
     public List<JobResult> execute(List<JobSpec> jobs) throws InterruptedException {
         ThreadPoolExecutor executor = getExecutor(options);
         List<Future<JobResult>> futureJobs = new ArrayList<>();
         try {
             var results = new ArrayList<JobResult>();
-            blockingThreadPool(executor);
             for (JobSpec job : jobs) {
-                futureJobs.add(executor.submit(() -> runJob(job)));
+                futureJobs.add(submitBlocking(executor, job));
             }
+            // Workers finish independently; future order preserves TSV order in the report.
             for (Future<JobResult> futureJob : futureJobs) {
                 results.add(futureJob.get());
 
             }
             return results;
         } catch (ExecutionException e) {
-            throw new RuntimeException(e);
+            throw new IllegalStateException("Job execution failed unexpectedly", e.getCause());
         } finally {
+            // Cancellation finishes a Future before its worker has necessarily cleaned up.
             cancelUnfinishedJobs(futureJobs);
             executor.shutdown();
+            awaitTermination(executor);
         }
     }
 
@@ -73,7 +81,7 @@ public class ProcessRunner {
         } finally {
             if (process.isAlive()) {
                 process.destroyForcibly();
-                process.waitFor();
+                awaitChildTermination(process);
             }
         }
     }
@@ -90,6 +98,7 @@ public class ProcessRunner {
             process.getOutputStream().close();
         } catch (IOException e) {
             process.destroyForcibly();
+            awaitChildTermination(process);
             throw e;
         }
         return new StartedJob(process, outputFile);
@@ -99,7 +108,7 @@ public class ProcessRunner {
         return Files.createTempFile(options.outputDirectory(), "job-", ".log");
     }
 
-    /** Will stop admission, clean up direct children, and release owned execution resources. */
+    /** Interrupts unfinished tasks; their workers own child cleanup. */
     private void cancelUnfinishedJobs(List<Future<JobResult>> futureJobs) {
         futureJobs.forEach(job -> {
             if(!job.isDone()) {
@@ -108,8 +117,9 @@ public class ProcessRunner {
         });
     }
 
-    public void shutdown() {
-        //TODO To be defined
+    /** Will stop admission and clean up an active batch from another thread. */
+    public void shutdown() throws InterruptedException {
+        throw new UnsupportedOperationException("Not implemented yet");
     }
 
     private static ThreadPoolExecutor getExecutor(RunnerOptions options) {
@@ -122,7 +132,73 @@ public class ProcessRunner {
         );
     }
 
-    private void blockingThreadPool(ThreadPoolExecutor executor) {
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+    private Future<JobResult> submitBlocking(ThreadPoolExecutor executor, JobSpec job)
+            throws InterruptedException {
+        // execute() does not check interruption when it can immediately accept a task.
+        if (Thread.interrupted()) {
+            throw new InterruptedException("Interrupted during job admission");
+        }
+        var task = new FutureTask<JobResult>(() -> runJob(job));
+        try {
+            executor.execute(task);
+            return task;
+        } catch (RejectedExecutionException e) {
+            if (executor.isShutdown()) {
+                throw e;
+            }
+        }
+        // The fixed pool already has workers. Queue insertion must not run a job here.
+        while (!executor.isShutdown()) {
+            if (executor.getQueue().offer(task, 100, TimeUnit.MILLISECONDS)) {
+                if (executor.isShutdown() && executor.getQueue().remove(task)) {
+                    task.cancel(false);
+                    throw new RejectedExecutionException("Executor shut down during admission");
+                }
+                return task;
+            }
+        }
+        throw new RejectedExecutionException("Executor is shut down");
+    }
+
+    /** Finish cleanup even under repeated interruption, then restore the interruption signal. */
+    private void awaitTermination(ThreadPoolExecutor executor) throws InterruptedException {
+        boolean interrupted = false;
+        try {
+            while (!executor.isTerminated()) {
+                try {
+                    executor.awaitTermination(1, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                    // Keep cancelling if cleanup itself was interrupted during a normal return.
+                    executor.shutdownNow();
+                }
+            }
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        if (interrupted) {
+            throw new InterruptedException("Interrupted while waiting for executor termination");
+        }
+    }
+
+    /** A second interrupt must not abandon a child that is still being forcibly terminated. */
+    private void awaitChildTermination(Process process) {
+        boolean interrupted = false;
+        try {
+            while (true) {
+                try {
+                    process.waitFor();
+                    return;
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                }
+            }
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 }

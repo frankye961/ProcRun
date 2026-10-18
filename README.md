@@ -1,8 +1,8 @@
 # ProcRun
 
 ProcRun is a small Java CLI exercise for practising concurrency, JVM internals,
-core Java, and system programming. TSV input, CLI option conversion, and sequential
-process execution with results are implemented. CLI execution wiring is still
+core Java, and system programming. TSV input, CLI option conversion, and bounded
+concurrent process execution with results are implemented. CLI execution wiring is still
 unfinished. Help and version work, while every unfinished operation throws
 `UnsupportedOperationException("Not implemented yet")`.
 
@@ -28,10 +28,14 @@ are outside this project.
 | `dev.procrun.monitoring` | Observe the runner JVM, independently of process execution. |
 
 `ProcessRunner` takes `RunnerOptions`; its constructor only assigns this dependency.
-Calling `execute()` starts jobs sequentially, captures merged output in separate
-files, and returns results in input order. Startup failures become individual
-failed results. Interruption terminates the active child before propagating.
-Concurrency, timeouts, and runner-wide shutdown are still unimplemented.
+Calling `execute()` creates a fixed worker pool and a bounded waiting queue,
+captures merged output in separate files, and returns results in input order.
+Admission blocks interruptibly when the queue is full, without starting extra
+children on the submitting thread. Startup failures become individual failed
+results. On interruption or failure, unfinished tasks are cancelled and the runner
+waits for workers to clean up their children. Cleanup continues through repeated
+interruptions and preserves the interruption signal. Each batch releases its own
+executor; timeouts and runner-wide shutdown remain unimplemented.
 `JobSpec` validates nonblank IDs and executables and requires a nonempty command
 list. Other records remain skeletons; no defensive copies are made.
 
@@ -75,7 +79,8 @@ physical line numbers, and missing files. Model tests cover `JobSpec` validation
 CLI tests cover defaults, custom options, invalid limits and numeric inputs,
 help, version, and explicitly unimplemented CLI execution. Runner tests cover
 exit codes, startup failures, continued execution, durations, output capture,
-literal arguments, stdin EOF, unique files, and empty batches.
+literal arguments, stdin EOF, unique files, empty batches, bounded parallelism,
+queue saturation, and interruption during admission and result collection.
 
 ## Intended execution — unimplemented
 
@@ -106,7 +111,8 @@ harmless Linux commands (`echo`, `uname`, and `pwd`), without a header.
 
 ## Input and execution policies
 
-These policies are agreed; bounded admission is still unimplemented.
+These policies are implemented in the reader and runner; CLI execution wiring is
+still unimplemented.
 
 - Skip blank lines, including lines containing only whitespace.
 - Require a nonblank job ID on every job row.

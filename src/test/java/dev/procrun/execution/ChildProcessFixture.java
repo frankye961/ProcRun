@@ -2,6 +2,8 @@ package dev.procrun.execution;
 
 import java.io.OutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 
 /** A sequential child program used by tests; never packaged in the application JAR. */
@@ -11,6 +13,15 @@ public final class ChildProcessFixture {
             case "exit" -> System.exit(Integer.parseInt(args[1]));
             case "sleep" -> Thread.sleep(Long.parseLong(args[1]));
             case "stdin" -> System.out.println(System.in.read());
+            case "gate" -> {
+                Path ready = Path.of(args[1]);
+                Path temporary = ready.resolveSibling(ready.getFileName() + ".tmp");
+                Files.writeString(temporary, Long.toString(ProcessHandle.current().pid()));
+                Files.move(temporary, ready);
+                while (!Files.exists(Path.of(args[2]))) {
+                    Thread.sleep(10);
+                }
+            }
             case "arguments" -> {
                 for (int index = 1; index < args.length; index++) {
                     System.out.println(args[index]);
