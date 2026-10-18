@@ -9,14 +9,23 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 @Timeout(15)
 class ProcessRunnerTest {
@@ -124,6 +133,117 @@ class ProcessRunnerTest {
         assertTrue(result.pid().isEmpty());
         assertTrue(result.exitCode().isEmpty());
         assertTrue(result.errorMessage().isPresent());
+    }
+
+    @Test
+    void boundsParallelismAndAdmitsMoreJobsThanQueueCapacity() throws Exception {
+        Path release = temporaryDirectory.resolve("release");
+        var jobs = new ArrayList<JobSpec>();
+        for (int index = 0; index < 6; index++) {
+            jobs.add(fixture("job-" + index, "gate",
+                    temporaryDirectory.resolve("ready-" + index).toString(), release.toString()));
+        }
+        ProcessRunner runner = new ProcessRunner(new RunnerOptions(2, 1,
+                Duration.ofSeconds(10), Duration.ofSeconds(2), outputDirectory()));
+        AtomicReference<List<JobResult>> results = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        CountDownLatch completed = new CountDownLatch(1);
+        Thread caller = Thread.ofPlatform().name("bounded-batch-test").start(() -> {
+            try {
+                results.set(runner.execute(jobs));
+            } catch (Throwable e) {
+                failure.set(e);
+            } finally {
+                completed.countDown();
+            }
+        });
+        try {
+            waitUntil(() -> Files.exists(temporaryDirectory.resolve("ready-0"))
+                    && Files.exists(temporaryDirectory.resolve("ready-1")),
+                    "Two workers should start children concurrently before either is released");
+            // Both workers are gated, so saturation cannot resolve until the test releases them.
+            assertFalse(completed.await(200, TimeUnit.MILLISECONDS));
+            for (int index = 2; index < 6; index++) {
+                assertFalse(Files.exists(temporaryDirectory.resolve("ready-" + index)),
+                        "Admission must not start an extra child on the caller thread");
+            }
+            Files.writeString(release, "go");
+            assertTrue(completed.await(5, TimeUnit.SECONDS));
+            assertNull(failure.get());
+            assertEquals(jobs.stream().map(JobSpec::jobId).toList(),
+                    results.get().stream().map(JobResult::jobId).toList());
+            assertTrue(results.get().stream().allMatch(result -> result.status() == JobStatus.SUCCESS));
+            for (JobResult result : results.get()) {
+                assertFalse(ProcessHandle.of(result.pid().orElseThrow())
+                        .map(ProcessHandle::isAlive).orElse(false));
+            }
+        } finally {
+            Files.writeString(release, "go");
+            caller.interrupt();
+            caller.join(5000);
+            assertFalse(caller.isAlive(), "Batch caller leaked after cleanup");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 3})
+    void interruptionDuringCollectionOrAdmissionWaitsForChildCleanup(int count) throws Exception {
+        Path release = temporaryDirectory.resolve("release");
+        Path ready = temporaryDirectory.resolve("ready");
+        var jobs = new ArrayList<JobSpec>();
+        jobs.add(fixture("active", "gate", ready.toString(), release.toString()));
+        for (int index = 1; index < count; index++) {
+            jobs.add(fixture("queued-" + index, "gate",
+                    temporaryDirectory.resolve("queued-ready-" + index).toString(), release.toString()));
+        }
+        ProcessRunner runner = new ProcessRunner(new RunnerOptions(1, 1,
+                Duration.ofSeconds(10), Duration.ofSeconds(2), outputDirectory()));
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread caller = Thread.ofPlatform().name("interrupted-batch-test").start(() -> {
+            try {
+                runner.execute(jobs);
+            } catch (Throwable e) {
+                failure.set(e);
+            }
+        });
+        try {
+            waitUntil(() -> Files.exists(ready), "Active child never reached its gate");
+            long pid = Long.parseLong(Files.readString(ready));
+            caller.interrupt();
+            caller.join(5000);
+
+            assertFalse(caller.isAlive(), "Interrupted caller did not finish cleanup");
+            assertInstanceOf(InterruptedException.class, failure.get());
+            assertFalse(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false),
+                    "execute() must wait for active child termination before propagating interruption");
+        } finally {
+            Files.writeString(release, "go");
+            caller.interrupt();
+            caller.join(5000);
+            assertFalse(caller.isAlive(), "Batch caller leaked after cleanup");
+        }
+    }
+
+    @Test
+    void rejectsAnAlreadyInterruptedCallerBeforeStartingChildren() throws Exception {
+        ProcessRunner runner = runner(outputDirectory());
+        JobSpec job = fixture("job", "exit", "0");
+        Thread.currentThread().interrupt();
+        try {
+            assertThrows(InterruptedException.class,
+                    () -> runner.execute(List.of(job)));
+            assertFalse(Files.exists(outputDirectory()));
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    private void waitUntil(BooleanSupplier condition, String message) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (!condition.getAsBoolean() && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+        assertTrue(condition.getAsBoolean(), message);
     }
 
     private Path outputDirectory() {
