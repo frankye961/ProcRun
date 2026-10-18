@@ -30,28 +30,29 @@ public class ProcessRunner {
     record StartedJob(Process process, Path outputFile) {}
 
     /** Executes sequentially in input order; interruption propagates after cleaning up the active child. */
-    public List<JobResult> execute(List<JobSpec> jobs) {
-       List<Future<JobResult>> futureJobs = new ArrayList<>();
-       ThreadPoolExecutor executor = getExecutor(options);
-        var results = new ArrayList<JobResult>();
-        if(executor.getQueue().remainingCapacity() == 0) {
-            //TODO throw exception, and move up during submission
-        }
-        for (JobSpec job : jobs) {
-            futureJobs.add(executor.submit(() -> runJob(job)));
-        }
-        for (Future<JobResult> futureJob : futureJobs) {
-            try {
-                results.add(futureJob.get());
-            } catch (InterruptedException | ExecutionException e) {
-                throw new RuntimeException(e);
+    public List<JobResult> execute(List<JobSpec> jobs) throws InterruptedException {
+        ThreadPoolExecutor executor = getExecutor(options);
+        List<Future<JobResult>> futureJobs = new ArrayList<>();
+        try {
+            var results = new ArrayList<JobResult>();
+            blockingThreadPool(executor);
+            for (JobSpec job : jobs) {
+                futureJobs.add(executor.submit(() -> runJob(job)));
             }
+            for (Future<JobResult> futureJob : futureJobs) {
+                results.add(futureJob.get());
+
+            }
+            return results;
+        } catch (ExecutionException e) {
+            throw new RuntimeException(e);
+        } finally {
+            cancelUnfinishedJobs(futureJobs);
+            executor.shutdown();
         }
-        executor.shutdown();
-        return results;
     }
 
-    private JobResult runJob(JobSpec job) throws IOException, InterruptedException {
+    private JobResult runJob(JobSpec job) throws InterruptedException {
 
         long started = System.nanoTime();
         StartedJob startedJob;
@@ -99,8 +100,16 @@ public class ProcessRunner {
     }
 
     /** Will stop admission, clean up direct children, and release owned execution resources. */
-    public void shutdown() throws InterruptedException {
-        throw new UnsupportedOperationException("Not implemented yet");
+    private void cancelUnfinishedJobs(List<Future<JobResult>> futureJobs) {
+        futureJobs.forEach(job -> {
+            if(!job.isDone()) {
+                job.cancel(true);
+            }
+        });
+    }
+
+    public void shutdown() {
+        //TODO To be defined
     }
 
     private static ThreadPoolExecutor getExecutor(RunnerOptions options) {
@@ -111,5 +120,9 @@ public class ProcessRunner {
                 TimeUnit.MILLISECONDS,
                 new ArrayBlockingQueue<>(options.waitingQueueCapacity())
         );
+    }
+
+    private void blockingThreadPool(ThreadPoolExecutor executor) {
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
     }
 }
