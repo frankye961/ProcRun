@@ -34,6 +34,9 @@ public class ProcessRunner {
        List<Future<JobResult>> futureJobs = new ArrayList<>();
        ThreadPoolExecutor executor = getExecutor(options);
         var results = new ArrayList<JobResult>();
+        if(executor.getQueue().remainingCapacity() == 0) {
+            //TODO throw exception, and move up during submission
+        }
         for (JobSpec job : jobs) {
             futureJobs.add(executor.submit(() -> runJob(job)));
         }
@@ -44,6 +47,7 @@ public class ProcessRunner {
                 throw new RuntimeException(e);
             }
         }
+        executor.shutdown();
         return results;
     }
 
