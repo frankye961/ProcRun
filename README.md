@@ -5,8 +5,8 @@ For the implementation checkpoint, see [completed work](docs/completed.md),
 
 ProcRun is a small Java CLI exercise for practising concurrency, JVM internals,
 core Java, and system programming. TSV input, CLI option conversion, and bounded
-concurrent process execution with results are implemented. CLI execution wiring is still
-unfinished. Help and version work, while every unfinished operation throws
+concurrent process execution with results are implemented and wired to the CLI.
+Help and version work, while every unfinished operation throws
 `UnsupportedOperationException("Not implemented yet")`.
 
 Keep implementation feasible in two days. The intended runner reads TSV jobs,
@@ -24,14 +24,17 @@ are outside this project.
 | Package | Responsibility |
 | --- | --- |
 | `dev.procrun` | Minimal picocli main-method bootstrap. |
-| `dev.procrun.cli` | CLI declarations; later coordinate input, execution, monitoring, and reporting, owning runner shutdown. |
+| `dev.procrun.cli` | CLI declarations, input coordination, batch execution, and result reporting; later add monitoring and runner shutdown. |
 | `dev.procrun.model` | Data records and terminal job statuses. |
 | `dev.procrun.config` | Small constructor-injection resolver using explicit bindings. |
 | `dev.procrun.input` | Load job definitions; own and close opened input resources. |
 | `dev.procrun.execution` | Own bounded execution resources, direct children, output capture, and cleanup. |
 | `dev.procrun.monitoring` | Observe the runner JVM, independently of process execution. |
 
-`ProcessRunner` takes `RunnerOptions`; its constructor only assigns this dependency.
+`RunCommand` receives `JobFileReader` and `ProcessRunner` through constructor
+injection. `DiFactory` supplies the reader binding; the resolver constructs the
+concrete runner without configuration or resources. Parsed `RunnerOptions` are
+passed to `execute(jobs, options)` for each invocation.
 Calling `execute()` creates a fixed worker pool and a bounded waiting queue,
 captures merged output in separate files, and returns results in input order.
 Admission blocks interruptibly when the queue is full, without starting extra
@@ -81,14 +84,15 @@ Reader tests cover valid TSV parsing, input order, blank lines, literal UTF-8
 arguments, empty argument fields, empty files, invalid rows, duplicate IDs,
 physical line numbers, and missing files. Model tests cover `JobSpec` validation.
 CLI tests cover defaults, custom options, invalid limits and numeric inputs,
-help, version, injected input reading, and explicitly unimplemented CLI execution.
+help, version, injected input reading and execution, result reports, exit codes,
+and readable input errors.
 Resolver tests cover constructor selection, bindings, recursive resolution, cycles,
 fresh instances, and constructor failure causes. Runner tests cover
 exit codes, startup failures, continued execution, durations, output capture,
 literal arguments, stdin EOF, unique files, empty batches, bounded parallelism,
 queue saturation, and interruption during admission and result collection.
 
-## Intended execution — unimplemented
+## Run jobs
 
 ```sh
 java -jar target/procrun.jar --parallel 3 --queue-capacity 20 --timeout-seconds 10 --grace-seconds 2 --output-dir output examples/jobs.tsv
@@ -98,11 +102,15 @@ These option values are also the defaults. Durations remain numeric CLI fields
 and are converted to `Duration` when creating `RunnerOptions`. Parallelism,
 queue capacity, and timeout must be positive; the grace period may be zero.
 Invalid limits produce a usage error and exit code 2. The application resolves
-`RunCommand` with an injected `TsvJobFileReader` using an explicit interface
-binding. Valid input is loaded, then execution fails with
-`UnsupportedOperationException: Not implemented yet` and a nonzero exit code.
-Input errors propagate before that unfinished step. Built-in help and version
-do not read input or invoke unfinished execution.
+`RunCommand` with an injected reader and runner. Valid input is executed with
+bounded concurrency. Reports preserve input order and include status, available
+exit code, duration in milliseconds, output path, and any startup error.
+Exit code 0 means all jobs succeeded (including an empty batch); 1 means a job
+failed or the input could not be read. Input errors print a readable message to
+stderr. Built-in help and version do not read input or start children.
+
+Timeout and grace options are parsed and validated but not enforced yet.
+Shutdown-hook cleanup and JVM monitoring are also unfinished.
 
 ## TSV input
 
@@ -120,8 +128,7 @@ harmless Linux commands (`echo`, `uname`, and `pwd`), without a header.
 
 ## Input and execution policies
 
-These policies are implemented in the reader and runner; CLI execution wiring is
-still unimplemented.
+These policies are implemented in the reader, runner, and CLI.
 
 - Skip blank lines, including lines containing only whitespace.
 - Require a nonblank job ID on every job row.

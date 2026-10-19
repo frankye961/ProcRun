@@ -3,7 +3,7 @@
 Checkpoint: 2026-10-19. Read [current.md](current.md) before resuming and
 [next.md](next.md) for the remaining work.
 
-## ProcRun cards 1–9
+## ProcRun cards 1–10
 
 - Created a single-module Maven project targeting Java 25 without preview features.
 - Added picocli, JUnit, and pinned compiler, Surefire, and Shade plugins.
@@ -30,20 +30,23 @@ Checkpoint: 2026-10-19. Read [current.md](current.md) before resuming and
 - Cancel unfinished tasks and wait for workers and direct children during batch
   cleanup. Repeated interruptions do not abandon child termination.
 - Added comments explaining admission, result ordering, and cleanup ownership.
+- Wired the CLI through `DiFactory` and the constructor resolver. Both reader and
+  runner are injected. Runtime options belong to `execute(jobs, options)`, not
+  the runner constructor. Reports preserve input order; success exits 0, job or
+  input failures exit 1, and usage errors exit 2.
 
 Bounded admission and cleanup are recorded in commit `8360b46`. GitHub remote:
 `https://github.com/frankye961/ProcRun.git`.
 
 ## Important limits
 
-The CLI still does not run jobs: `RunCommand.call()` validates options, loads input
-through its injected reader, and then throws
-`UnsupportedOperationException("Not implemented yet")`. Help and version work.
+The CLI runs jobs and prints results. Help and version work without input I/O.
 Process timeouts, graceful termination policy, external runner-wide shutdown,
 shutdown hooks, and JVM monitoring are not implemented. Batch cleanup is already
 implemented; it is distinct from the unfinished public `shutdown()` entry point.
 
-The suite has 79 tests covering input, models, CLI options, child fixtures,
+The suite has 87 tests covering input, models, CLI options/execution, child fixtures,
 execution, bounded admission, interruption, and constructor DI. The resolver is
-connected to the bootstrap with an explicit reader binding; no class scanning
+connected to the bootstrap with an explicit reader binding and an automatically
+resolved concrete runner; no class scanning
 or additional framework was added. See [current.md](current.md) for the resume point.

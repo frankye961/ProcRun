@@ -1,6 +1,6 @@
 # Current checkpoint
 
-Checkpoint: 2026-10-19. Branch: `feature/constructor-di`.
+Checkpoint: 2026-10-19. Branch: `feature/cli-execution`.
 
 Read [completed.md](completed.md) for finished work and [next.md](next.md) for
 the remaining cards. These documents preserve decisions from the conversation;
@@ -21,10 +21,10 @@ The user explicitly requested Lombok and then a small custom constructor-DI
 exercise despite those not being part of the original skeleton scope. Do not
 expand that exercise into Spring or a general framework.
 
-## Current task: finish CLI execution (card 10)
+## Current task: execution timeouts (card 11)
 
 The constructor-DI exercise is implemented, tested, and connected to the
-application bootstrap. Resume the remaining CLI execution and reporting work.
+application bootstrap. Card 10 is complete; resume the timeout card next.
 
 Files:
 
@@ -47,29 +47,40 @@ Implemented and tested:
 - `resolveArguments(...)`: recursively resolves parameters in declaration order.
 - Recursive `resolve(...)`: detects cycles on the active implementation path and
   removes entries in `finally`; public `resolve(...)` starts with a fresh set.
-- `ProcRunApplication` creates the resolver with the explicit
-  `JobFileReader -> TsvJobFileReader` binding and resolves `RunCommand`.
-- `RunCommand` has an annotated constructor taking `JobFileReader`; its `call()`
-  validates options and loads the selected file using the injected reader.
+- `ProcRunApplication` obtains `DiFactory.getInstance()` and calls `runCommand()`.
+  The factory creates the resolver with the explicit
+  `JobFileReader -> TsvJobFileReader` binding and resolves a fresh `RunCommand`.
+  Only the factory is a singleton; resolved command and dependency instances
+  are not cached. Concrete `ProcessRunner` needs no interface binding.
+- `RunCommand` has an annotated constructor taking `JobFileReader` and
+  `ProcessRunner`. Its `call()` validates options, loads the selected file, calls
+  `processRunner.execute(jobs, options)`, prints ordered results, and returns
+  0 for all-success or 1 for job/input failure. Usage errors remain exit code 2.
+- At the user's request, `ProcessRunner` is now injected like the reader. It has
+  no constructor configuration; runtime `RunnerOptions` are passed per batch.
+  Tests verify injection and reuse with different options without shared config.
+- Removed the unused private `run()` draft and unfinished CLI exception.
 
-After loading valid input, `call()` still throws the standard unimplemented
-exception. It does not start processes or print a report. The unused private
-`run()` draft still only creates options; it is not an execution entry point.
+The packaged JAR can run examples/jobs.tsv. Timeout/grace options are still only
+parsed and validated; they are not enforced. External shutdown, hooks, and JVM
+monitoring remain unfinished.
 
 ## Exact next learning step
 
-In `RunCommand.call()`, retain `RunnerOptions`, create `ProcessRunner` after
-parsing options, execute the loaded jobs, and add minimal result reporting and
-exit-code handling as described in [next.md](next.md). Implement only the next
-small step requested by the user. Do not add scanning or extend the DI framework.
+Implement per-process timeout handling in `ProcessRunner` using each batch's
+options. Timeout starts when a child starts, not while queued. Follow card 11
+in [next.md](next.md); implement only the next small step requested by the user.
+Do not add scanning or extend the DI framework.
 
 ## Verification and Git
 
-`mvn -B -ntp clean verify` passed: 79 tests, zero failures, errors, or skipped
+`mvn -B -ntp clean verify` passed: 87 tests, zero failures, errors, or skipped
 tests. Resolver tests cover constructor selection, bindings, nested dependencies,
 cycles, repeated dependencies, fresh instances, original constructor failures,
-and application-command construction. CLI tests cover injected-reader use and
-help/version bypassing input reads.
+and application-command construction. CLI tests cover injected-reader/runner use,
+reports, success/failure exit codes, malformed/missing input, empty files, and
+help/version bypassing input reads. Packaged help/version and example execution
+are also checked manually at this checkpoint.
 
 The previous concurrency commit initially could not be pushed because of DNS
 restrictions. At checkpoint start, local Git reported the concurrency branch

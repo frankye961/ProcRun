@@ -6,27 +6,20 @@ the assistant reviews it and adds tests when requested.
 ## Constructor-DI exercise complete
 
 The resolver is implemented, tested, and connected to the application bootstrap.
-`RunCommand` receives a `JobFileReader` and uses it to load input. Continue with
-the remaining execution and reporting work in card 10.
+`RunCommand` receives `JobFileReader` and `ProcessRunner` and is fully wired for
+batch execution and reporting. Continue with card 11.
 
 Only public constructors are supported. Keep explicit bindings; do not add
 classpath scanning, singleton scopes, field injection, or lifecycle machinery.
 
 ## Return to ProcRun cards
 
-### Card 10: connect CLI execution and minimal reporting
+### Card 10 complete
 
-- Input loading and option conversion are wired. Retain the resulting options,
-  create the configured `ProcessRunner`, and execute the loaded batch.
-- Report ID, status, available exit code, duration in milliseconds, available
-  output path, and any error message in input order.
-- Return 0 when all jobs succeed, otherwise 1; input errors need readable messages
-  and a nonzero exit code. Existing usage errors remain exit code 2.
-- Remove the CLI description's claim that execution is unimplemented once wired.
-- Keep help and version working and add packaged CLI execution tests.
-- The command's injected constructor dependency is `JobFileReader`.
-  Create `ProcessRunner` only after CLI options are parsed;
-  a resolver cannot supply its runtime configuration from type bindings alone.
+Input loading, runtime options, injected runner execution, ordered reports,
+exit codes, and readable input errors are implemented and tested. The resolver
+creates the runner before parsing; CLI runtime options are passed separately to
+`execute(jobs, options)`. Keep that configuration per invocation.
 
 ### Card 11: execution timeouts
 

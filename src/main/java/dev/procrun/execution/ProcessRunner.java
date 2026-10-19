@@ -4,7 +4,6 @@ import dev.procrun.model.JobResult;
 import dev.procrun.model.JobSpec;
 import dev.procrun.model.JobStatus;
 import dev.procrun.model.RunnerOptions;
-import lombok.RequiredArgsConstructor;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -25,24 +24,22 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Owns each batch's bounded executor, output capture, and direct child processes.
+ * Has no constructor configuration; runtime options are supplied to execute().
  * execute() releases batch resources before returning; external shutdown is still unimplemented.
  */
-@RequiredArgsConstructor
 public class ProcessRunner {
-
-    private final RunnerOptions options;
 
     /** A started direct child and its output file; lifecycle ownership stays with the runner. */
     record StartedJob(Process process, Path outputFile) {}
 
-    /** Executes with bounded admission and parallelism; cleans up before propagating interruption. */
-    public List<JobResult> execute(List<JobSpec> jobs) throws InterruptedException {
+    /** Uses per-batch options and bounded admission; cleans up before propagating interruption. */
+    public List<JobResult> execute(List<JobSpec> jobs, RunnerOptions options) throws InterruptedException {
         ThreadPoolExecutor executor = getExecutor(options);
         List<Future<JobResult>> futureJobs = new ArrayList<>();
         try {
             var results = new ArrayList<JobResult>();
             for (JobSpec job : jobs) {
-                futureJobs.add(submitBlocking(executor, job));
+                futureJobs.add(submitBlocking(executor, job, options));
             }
             // Workers finish independently; future order preserves TSV order in the report.
             for (Future<JobResult> futureJob : futureJobs) {
@@ -60,12 +57,12 @@ public class ProcessRunner {
         }
     }
 
-    private JobResult runJob(JobSpec job) throws InterruptedException {
+    private JobResult runJob(JobSpec job, RunnerOptions options) throws InterruptedException {
 
         long started = System.nanoTime();
         StartedJob startedJob;
         try {
-            startedJob = startJob(job);
+            startedJob = startJob(job, options);
         } catch (IOException e) {
             return new JobResult(job.jobId(), OptionalLong.empty(), JobStatus.FAILED,
                     OptionalInt.empty(), Duration.ofNanos(System.nanoTime() - started),
@@ -86,9 +83,9 @@ public class ProcessRunner {
         }
     }
 
-    private StartedJob startJob(JobSpec job) throws IOException {
+    private StartedJob startJob(JobSpec job, RunnerOptions options) throws IOException {
         Files.createDirectories(options.outputDirectory());
-        var outputFile = createTempFile();
+        var outputFile = createTempFile(options);
         ProcessBuilder processBuilder = new ProcessBuilder();
         processBuilder.command(job.commandArguments());
         processBuilder.redirectErrorStream(true);
@@ -104,7 +101,7 @@ public class ProcessRunner {
         return new StartedJob(process, outputFile);
     }
 
-    private Path createTempFile() throws IOException {
+    private Path createTempFile(RunnerOptions options) throws IOException {
         return Files.createTempFile(options.outputDirectory(), "job-", ".log");
     }
 
@@ -132,13 +129,13 @@ public class ProcessRunner {
         );
     }
 
-    private Future<JobResult> submitBlocking(ThreadPoolExecutor executor, JobSpec job)
+    private Future<JobResult> submitBlocking(ThreadPoolExecutor executor, JobSpec job, RunnerOptions options)
             throws InterruptedException {
         // execute() does not check interruption when it can immediately accept a task.
         if (Thread.interrupted()) {
             throw new InterruptedException("Interrupted during job admission");
         }
-        var task = new FutureTask<JobResult>(() -> runJob(job));
+        var task = new FutureTask<JobResult>(() -> runJob(job, options));
         try {
             executor.execute(task);
             return task;

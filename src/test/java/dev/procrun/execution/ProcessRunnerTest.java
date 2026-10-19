@@ -34,7 +34,7 @@ class ProcessRunnerTest {
 
     @Test
     void reportsSuccessAndEveryNonzeroExitCodeInInputOrder() throws Exception {
-        List<JobResult> results = runner(outputDirectory()).execute(List.of(
+        List<JobResult> results = execute(outputDirectory(), List.of(
                 fixture("second", "exit", "0"), fixture("first", "exit", "7")));
 
         assertEquals(List.of("second", "first"), results.stream().map(JobResult::jobId).toList());
@@ -55,7 +55,7 @@ class ProcessRunnerTest {
         JobSpec missing = new JobSpec("missing",
                 List.of(temporaryDirectory.resolve("missing-executable").toString()));
 
-        List<JobResult> results = runner(outputDirectory()).execute(
+        List<JobResult> results = execute(outputDirectory(),
                 List.of(missing, fixture("next", "exit", "0")));
 
         assertEquals(2, results.size());
@@ -70,7 +70,7 @@ class ProcessRunnerTest {
 
     @Test
     void capturesLargeMergedOutputWithoutBlocking() throws Exception {
-        JobResult result = runner(outputDirectory()).execute(
+        JobResult result = execute(outputDirectory(),
                 List.of(fixture("output", "output", "262144"))).getFirst();
 
         assertEquals(JobStatus.SUCCESS, result.status());
@@ -81,11 +81,11 @@ class ProcessRunnerTest {
     @Test
     void createsDistinctOutputFilesInsideConfiguredDirectory() throws Exception {
         Path output = outputDirectory();
-        ProcessRunner runner = runner(output);
+        ProcessRunner runner = new ProcessRunner();
         assertFalse(Files.exists(output), "Constructor must not create output resources");
 
         List<JobResult> results = runner.execute(List.of(
-                fixture("../../outside", "exit", "0"), fixture("another", "exit", "0")));
+                fixture("../../outside", "exit", "0"), fixture("another", "exit", "0")), options(output));
 
         Path first = results.getFirst().outputFile().orElseThrow();
         Path second = results.getLast().outputFile().orElseThrow();
@@ -98,7 +98,7 @@ class ProcessRunnerTest {
 
     @Test
     void closesChildStdinAndPassesArgumentsLiterally() throws Exception {
-        List<JobResult> results = runner(outputDirectory()).execute(List.of(
+        List<JobResult> results = execute(outputDirectory(), List.of(
                 fixture("stdin", "stdin"),
                 fixture("literal", "arguments", "Hello, Java", "$HOME", "", "\"quoted\"")));
 
@@ -111,7 +111,7 @@ class ProcessRunnerTest {
 
     @Test
     void measuresDurationThroughProcessCompletion() throws Exception {
-        JobResult result = runner(outputDirectory()).execute(
+        JobResult result = execute(outputDirectory(),
                 List.of(fixture("sleep", "sleep", "200"))).getFirst();
 
         assertEquals(JobStatus.SUCCESS, result.status());
@@ -120,14 +120,14 @@ class ProcessRunnerTest {
 
     @Test
     void returnsEmptyResultsForEmptyBatch() throws Exception {
-        assertEquals(List.of(), runner(outputDirectory()).execute(List.of()));
+        assertEquals(List.of(), execute(outputDirectory(), List.of()));
     }
 
     @Test
     void reportsOutputDirectoryFailureAsJobFailure() throws Exception {
         Path file = Files.writeString(temporaryDirectory.resolve("file"), "not a directory");
 
-        JobResult result = runner(file).execute(List.of(fixture("job", "exit", "0"))).getFirst();
+        JobResult result = execute(file, List.of(fixture("job", "exit", "0"))).getFirst();
 
         assertEquals(JobStatus.FAILED, result.status());
         assertTrue(result.pid().isEmpty());
@@ -143,14 +143,15 @@ class ProcessRunnerTest {
             jobs.add(fixture("job-" + index, "gate",
                     temporaryDirectory.resolve("ready-" + index).toString(), release.toString()));
         }
-        ProcessRunner runner = new ProcessRunner(new RunnerOptions(2, 1,
-                Duration.ofSeconds(10), Duration.ofSeconds(2), outputDirectory()));
+        ProcessRunner runner = new ProcessRunner();
+        RunnerOptions options = new RunnerOptions(2, 1,
+                Duration.ofSeconds(10), Duration.ofSeconds(2), outputDirectory());
         AtomicReference<List<JobResult>> results = new AtomicReference<>();
         AtomicReference<Throwable> failure = new AtomicReference<>();
         CountDownLatch completed = new CountDownLatch(1);
         Thread caller = Thread.ofPlatform().name("bounded-batch-test").start(() -> {
             try {
-                results.set(runner.execute(jobs));
+                results.set(runner.execute(jobs, options));
             } catch (Throwable e) {
                 failure.set(e);
             } finally {
@@ -196,12 +197,13 @@ class ProcessRunnerTest {
             jobs.add(fixture("queued-" + index, "gate",
                     temporaryDirectory.resolve("queued-ready-" + index).toString(), release.toString()));
         }
-        ProcessRunner runner = new ProcessRunner(new RunnerOptions(1, 1,
-                Duration.ofSeconds(10), Duration.ofSeconds(2), outputDirectory()));
+        ProcessRunner runner = new ProcessRunner();
+        RunnerOptions options = new RunnerOptions(1, 1,
+                Duration.ofSeconds(10), Duration.ofSeconds(2), outputDirectory());
         AtomicReference<Throwable> failure = new AtomicReference<>();
         Thread caller = Thread.ofPlatform().name("interrupted-batch-test").start(() -> {
             try {
-                runner.execute(jobs);
+                runner.execute(jobs, options);
             } catch (Throwable e) {
                 failure.set(e);
             }
@@ -226,16 +228,33 @@ class ProcessRunnerTest {
 
     @Test
     void rejectsAnAlreadyInterruptedCallerBeforeStartingChildren() throws Exception {
-        ProcessRunner runner = runner(outputDirectory());
+        ProcessRunner runner = new ProcessRunner();
         JobSpec job = fixture("job", "exit", "0");
         Thread.currentThread().interrupt();
         try {
             assertThrows(InterruptedException.class,
-                    () -> runner.execute(List.of(job)));
+                    () -> runner.execute(List.of(job), options(outputDirectory())));
             assertFalse(Files.exists(outputDirectory()));
         } finally {
             Thread.interrupted();
         }
+    }
+
+    @Test
+    void reusesInjectedRunnerWithDifferentOptionsPerBatch() throws Exception {
+        ProcessRunner runner = new ProcessRunner();
+        Path firstOutput = temporaryDirectory.resolve("first");
+        Path secondOutput = temporaryDirectory.resolve("second");
+        JobSpec job = fixture("job", "exit", "0");
+
+        JobResult first = runner.execute(List.of(job), options(firstOutput)).getFirst();
+        assertFalse(Files.exists(secondOutput));
+        JobResult second = runner.execute(List.of(job), options(secondOutput)).getFirst();
+
+        assertEquals(JobStatus.SUCCESS, first.status());
+        assertEquals(JobStatus.SUCCESS, second.status());
+        assertEquals(firstOutput, first.outputFile().orElseThrow().getParent());
+        assertEquals(secondOutput, second.outputFile().orElseThrow().getParent());
     }
 
     private void waitUntil(BooleanSupplier condition, String message) throws InterruptedException {
@@ -250,9 +269,12 @@ class ProcessRunnerTest {
         return temporaryDirectory.resolve("nested/output");
     }
 
-    private ProcessRunner runner(Path output) {
-        return new ProcessRunner(new RunnerOptions(3, 20, Duration.ofSeconds(10),
-                Duration.ofSeconds(2), output));
+    private List<JobResult> execute(Path output, List<JobSpec> jobs) throws InterruptedException {
+        return new ProcessRunner().execute(jobs, options(output));
+    }
+
+    private RunnerOptions options(Path output) {
+        return new RunnerOptions(3, 20, Duration.ofSeconds(10), Duration.ofSeconds(2), output);
     }
 
     private JobSpec fixture(String id, String... arguments) throws Exception {
