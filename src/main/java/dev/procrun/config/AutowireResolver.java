@@ -6,6 +6,7 @@ import java.lang.reflect.Modifier;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -18,30 +19,42 @@ public class AutowireResolver {
 
     /** Will resolve a dependency graph; invalid graphs and construction failures use IllegalStateException. */
     public <T> T resolve(Class<T> type) {
-        throw new UnsupportedOperationException("Not implemented yet");
+        return resolve(type, new HashSet<>());
     }
 
     /** Will resolve recursively, tracking the active construction path to detect cycles. */
     private <T> T resolve(Class<T> type, Set<Class<?>> resolving) {
-        throw new UnsupportedOperationException("Not implemented yet");
+        Class<?> clazz = implementationFor(type);
+        if (!resolving.add(clazz)) {
+            throw new IllegalStateException(
+                    "Circular dependency involving " + clazz.getName());
+        }
+        try {
+            var constructor = findConstructor(clazz);
+            var arguments = resolveArguments(constructor, resolving);
+            var instance = instantiate(constructor, arguments);
+            return type.cast(instance);
+        } finally {
+            resolving.remove(clazz);
+        }
     }
 
     /** Will select an explicit binding, or the requested concrete class; reject incompatible bindings. */
     private Class<?> implementationFor(Class<?> type) {
         var binding = bindings.get(type);
         var implementation = binding != null ? binding : type;
-        if(binding != null){
-            if(!type.isAssignableFrom(binding)){
+        if (binding != null) {
+            if (!type.isAssignableFrom(binding)) {
                 throw new IllegalStateException("Implementation " + binding.getName()
                         + " is not assignable to " + type.getName());
             }
         }
 
-        if(implementation.isInterface()){
+        if (implementation.isInterface()) {
             throw new IllegalStateException("Cannot resolve interface " + implementation.getName()
                     + " for requested type " + type.getName());
         }
-        if(Modifier.isAbstract(implementation.getModifiers())){
+        if (Modifier.isAbstract(implementation.getModifiers())) {
             throw new IllegalStateException("Cannot resolve abstract class " + implementation.getName()
                     + " for requested type " + type.getName());
         }
@@ -52,14 +65,14 @@ public class AutowireResolver {
     private Constructor<?> findConstructor(Class<?> implementation) {
         var publicConstructors = implementation.getConstructors();
         Set<Constructor<?>> annotatedConstructors = createAnnotatedConstructors(implementation);
-        if(annotatedConstructors.size() == 1) return annotatedConstructors.iterator().next();
+        if (annotatedConstructors.size() == 1) return annotatedConstructors.iterator().next();
         else if (annotatedConstructors.size() == 0) {
-           if (publicConstructors.length == 1){
-               return publicConstructors[0];
-           }
-           throw new IllegalStateException(
-                   "Expected exactly one public constructor when none is annotated: "
-                           + implementation.getName());
+            if (publicConstructors.length == 1) {
+                return publicConstructors[0];
+            }
+            throw new IllegalStateException(
+                    "Expected exactly one public constructor when none is annotated: "
+                            + implementation.getName());
         } else {
             throw new IllegalStateException("Multiple constructors found");
         }
@@ -68,8 +81,8 @@ public class AutowireResolver {
     private static Set<Constructor<?>> createAnnotatedConstructors(Class<?> implementation) {
         Set<Constructor<?>> annotatedConstructors = new HashSet<>();
         Constructor<?>[] constructors = implementation.getConstructors();
-        for(Constructor<?> constructor : constructors){
-            if(constructor.isAnnotationPresent(AutowireComponent.class)){
+        for (Constructor<?> constructor : constructors) {
+            if (constructor.isAnnotationPresent(AutowireComponent.class)) {
                 annotatedConstructors.add(constructor);
             }
         }
@@ -78,7 +91,12 @@ public class AutowireResolver {
 
     /** Will resolve constructor parameters in declaration order, sharing the active construction path. */
     private Object[] resolveArguments(Constructor<?> constructor, Set<Class<?>> resolving) {
-        throw new UnsupportedOperationException("Not implemented yet");
+        var params = constructor.getParameterTypes();
+        Object[] arguments = new Object[params.length];
+        for (int i = 0; i < params.length; i++) {
+            arguments[i] = resolve(params[i], resolving);
+        }
+        return arguments;
     }
 
     /** Will invoke the constructor and wrap reflective failures while preserving the original cause. */

@@ -26,6 +26,7 @@ are outside this project.
 | `dev.procrun` | Minimal picocli main-method bootstrap. |
 | `dev.procrun.cli` | CLI declarations; later coordinate input, execution, monitoring, and reporting, owning runner shutdown. |
 | `dev.procrun.model` | Data records and terminal job statuses. |
+| `dev.procrun.config` | Small constructor-injection resolver using explicit bindings. |
 | `dev.procrun.input` | Load job definitions; own and close opened input resources. |
 | `dev.procrun.execution` | Own bounded execution resources, direct children, output capture, and cleanup. |
 | `dev.procrun.monitoring` | Observe the runner JVM, independently of process execution. |
@@ -80,7 +81,9 @@ Reader tests cover valid TSV parsing, input order, blank lines, literal UTF-8
 arguments, empty argument fields, empty files, invalid rows, duplicate IDs,
 physical line numbers, and missing files. Model tests cover `JobSpec` validation.
 CLI tests cover defaults, custom options, invalid limits and numeric inputs,
-help, version, and explicitly unimplemented CLI execution. Runner tests cover
+help, version, injected input reading, and explicitly unimplemented CLI execution.
+Resolver tests cover constructor selection, bindings, recursive resolution, cycles,
+fresh instances, and constructor failure causes. Runner tests cover
 exit codes, startup failures, continued execution, durations, output capture,
 literal arguments, stdin EOF, unique files, empty batches, bounded parallelism,
 queue saturation, and interruption during admission and result collection.
@@ -94,9 +97,12 @@ java -jar target/procrun.jar --parallel 3 --queue-capacity 20 --timeout-seconds 
 These option values are also the defaults. Durations remain numeric CLI fields
 and are converted to `Duration` when creating `RunnerOptions`. Parallelism,
 queue capacity, and timeout must be positive; the grace period may be zero.
-Invalid limits produce a usage error and exit code 2. Calling execution
-now fails with `UnsupportedOperationException: Not implemented yet` and a nonzero
-exit code. Built-in help and version do not invoke unfinished execution.
+Invalid limits produce a usage error and exit code 2. The application resolves
+`RunCommand` with an injected `TsvJobFileReader` using an explicit interface
+binding. Valid input is loaded, then execution fails with
+`UnsupportedOperationException: Not implemented yet` and a nonzero exit code.
+Input errors propagate before that unfinished step. Built-in help and version
+do not read input or invoke unfinished execution.
 
 ## TSV input
 

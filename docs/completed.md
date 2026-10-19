@@ -36,12 +36,14 @@ Bounded admission and cleanup are recorded in commit `8360b46`. GitHub remote:
 
 ## Important limits
 
-The CLI still does not run jobs: `RunCommand.call()` validates options and throws
+The CLI still does not run jobs: `RunCommand.call()` validates options, loads input
+through its injected reader, and then throws
 `UnsupportedOperationException("Not implemented yet")`. Help and version work.
 Process timeouts, graceful termination policy, external runner-wide shutdown,
 shutdown hooks, and JVM monitoring are not implemented. Batch cleanup is already
 implemented; it is distinct from the unfinished public `shutdown()` entry point.
 
-The existing suite has 64 tests covering input, models, CLI options, child
-fixtures, execution, bounded admission, and interruption. The DI work described
-in [current.md](current.md) has no behavioral tests yet.
+The suite has 79 tests covering input, models, CLI options, child fixtures,
+execution, bounded admission, interruption, and constructor DI. The resolver is
+connected to the bootstrap with an explicit reader binding; no class scanning
+or additional framework was added. See [current.md](current.md) for the resume point.

@@ -1,5 +1,7 @@
 package dev.procrun.cli;
 
+import dev.procrun.config.AutowireComponent;
+import dev.procrun.input.JobFileReader;
 import dev.procrun.model.RunnerOptions;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -16,6 +18,13 @@ import picocli.CommandLine.Model.CommandSpec;
         description = "Run commands from a TSV file (execution is not implemented yet).",
         showDefaultValues = true)
 public class RunCommand implements Callable<Integer> {
+    private final JobFileReader jobFileReader;
+
+    @AutowireComponent
+    public RunCommand(JobFileReader jobFileReader) {
+        this.jobFileReader = jobFileReader;
+    }
+
     @Spec
     private CommandSpec commandSpec;
 
@@ -37,10 +46,11 @@ public class RunCommand implements Callable<Integer> {
     @Parameters(index = "0", paramLabel = "JOBS_TSV", description = "TSV job definitions.")
     private Path jobFile;
 
-    /** Validates options; batch execution and reporting remain unimplemented. */
+    /** Validates options and loads input; batch execution and reporting remain unimplemented. */
     @Override
     public Integer call() throws Exception {
         toRunnerOptions();
+        var jobs = jobFileReader.read(jobFile);
         throw new UnsupportedOperationException("Not implemented yet");
     }
 

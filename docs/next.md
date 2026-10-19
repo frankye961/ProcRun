@@ -3,22 +3,11 @@
 Resume from [current.md](current.md). The user implements behavior step by step;
 the assistant reviews it and adds tests when requested.
 
-## Finish the constructor-DI exercise
+## Constructor-DI exercise complete
 
-1. Implement and review `implementationFor(Class<?>)` using the rules in current.md.
-2. Implement `instantiate(Constructor<?>, Object[])`: invoke the selected public
-   constructor, wrap reflective failures in `IllegalStateException`, and preserve
-   the underlying constructor failure as the cause.
-3. Implement `resolveArguments(...)`: resolve each parameter type in declaration
-   order using the same active construction-path set.
-4. Implement recursive `resolve(...)`: select implementation, detect circular
-   dependencies on the active path, select constructor, resolve arguments, invoke,
-   and cast to the requested type. Remove the path entry in `finally`, including
-   on failure. Reusing a dependency in different branches is not a cycle.
-5. Implement public `resolve(Class<T>)` as a fresh-resolution entry point.
-6. Add meaningful tests for constructor selection, valid and invalid bindings,
-   nested dependencies, cycles, constructor failures, repeated dependencies, and
-   fresh instances. Do not claim DI is complete until these tests pass.
+The resolver is implemented, tested, and connected to the application bootstrap.
+`RunCommand` receives a `JobFileReader` and uses it to load input. Continue with
+the remaining execution and reporting work in card 10.
 
 Only public constructors are supported. Keep explicit bindings; do not add
 classpath scanning, singleton scopes, field injection, or lifecycle machinery.
@@ -27,16 +16,16 @@ classpath scanning, singleton scopes, field injection, or lifecycle machinery.
 
 ### Card 10: connect CLI execution and minimal reporting
 
-- Load jobs through `JobFileReader`, convert options, create the configured
-  `ProcessRunner`, and execute the batch.
+- Input loading and option conversion are wired. Retain the resulting options,
+  create the configured `ProcessRunner`, and execute the loaded batch.
 - Report ID, status, available exit code, duration in milliseconds, available
   output path, and any error message in input order.
 - Return 0 when all jobs succeed, otherwise 1; input errors need readable messages
   and a nonzero exit code. Existing usage errors remain exit code 2.
 - Remove the CLI description's claim that execution is unimplemented once wired.
 - Keep help and version working and add packaged CLI execution tests.
-- Before the custom-DI detour, the proposed constructor dependency was
-  `JobFileReader`. Create `ProcessRunner` only after CLI options are parsed;
+- The command's injected constructor dependency is `JobFileReader`.
+  Create `ProcessRunner` only after CLI options are parsed;
   a resolver cannot supply its runtime configuration from type bindings alone.
 
 ### Card 11: execution timeouts

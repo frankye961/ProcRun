@@ -21,9 +21,10 @@ The user explicitly requested Lombok and then a small custom constructor-DI
 exercise despite those not being part of the original skeleton scope. Do not
 expand that exercise into Spring or a general framework.
 
-## Paused task: constructor dependency injection
+## Current task: finish CLI execution (card 10)
 
-The CLI execution card (10) was paused to build a small resolver first.
+The constructor-DI exercise is implemented, tested, and connected to the
+application bootstrap. Resume the remaining CLI execution and reporting work.
 
 Files:
 
@@ -34,50 +35,41 @@ Files:
   No scanning, field injection, caching, or lifecycle management. Each resolution
   will create new instances.
 
-Implemented and reviewed by source inspection:
+Implemented and tested:
 
 - `createAnnotatedConstructors(Class<?>)`: collects annotated public constructors.
 - `findConstructor(Class<?>)`: selects exactly one annotated public constructor;
   rejects multiple annotated constructors. With no annotation, accepts exactly
   one public constructor and rejects zero or multiple public constructors.
-- Removed unused `Modifier` import and clarified the fallback error message.
+- `implementationFor(Class<?>)`: validates explicit bindings and selects a
+  concrete implementation, rejecting interfaces and abstract classes.
+- `instantiate(...)`: invokes constructors and preserves the original failure cause.
+- `resolveArguments(...)`: recursively resolves parameters in declaration order.
+- Recursive `resolve(...)`: detects cycles on the active implementation path and
+  removes entries in `finally`; public `resolve(...)` starts with a fresh set.
+- `ProcRunApplication` creates the resolver with the explicit
+  `JobFileReader -> TsvJobFileReader` binding and resolves `RunCommand`.
+- `RunCommand` has an annotated constructor taking `JobFileReader`; its `call()`
+  validates options and loads the selected file using the injected reader.
 
-All other resolver methods still throw the standard unimplemented exception:
-
-- Public `resolve(Class<T>)`.
-- Recursive `resolve(Class<T>, Set<Class<?>>)`.
-- `implementationFor(Class<?>)` — **resume here**.
-- `resolveArguments(Constructor<?>, Set<Class<?>>)`.
-- `instantiate(Constructor<?>, Object[])`.
-
-No DI logic is connected to the application bootstrap or CLI. `RunCommand`
-also contains the user's unfinished, unused private `run()` draft, which only
-creates options. It is not an implemented execution entry point.
+After loading valid input, `call()` still throws the standard unimplemented
+exception. It does not start processes or print a report. The unused private
+`run()` draft still only creates options; it is not an execution entry point.
 
 ## Exact next learning step
 
-Implement only `implementationFor(Class<?> type)`:
-
-1. Look up the requested type in `bindings`.
-2. If a binding exists, require `type.isAssignableFrom(implementation)`.
-3. Without a binding, select the requested type itself.
-4. Reject interfaces and abstract selected classes with descriptive
-   `IllegalStateException`s.
-5. Return the selected concrete class; do not construct it here.
-
-Useful APIs: `Class.isAssignableFrom`, `Class.isInterface`, and
-`Modifier.isAbstract(selected.getModifiers())`. Reintroduce the `Modifier`
-import when this method actually uses it.
-
-Examples: `JobFileReader -> TsvJobFileReader` is valid; requesting concrete
-`TsvJobFileReader` without a binding is valid; requesting unbound `JobFileReader`
-or binding it to `String` must fail.
+In `RunCommand.call()`, retain `RunnerOptions`, create `ProcessRunner` after
+parsing options, execute the loaded jobs, and add minimal result reporting and
+exit-code handling as described in [next.md](next.md). Implement only the next
+small step requested by the user. Do not add scanning or extend the DI framework.
 
 ## Verification and Git
 
-`mvn -B -ntp clean verify` passed at this checkpoint: 64 tests, zero failures,
-errors, or skipped tests. The DI constructor-selection behavior has not been
-tested yet; the passing suite does not prove the unfinished DI methods work.
+`mvn -B -ntp clean verify` passed: 79 tests, zero failures, errors, or skipped
+tests. Resolver tests cover constructor selection, bindings, nested dependencies,
+cycles, repeated dependencies, fresh instances, original constructor failures,
+and application-command construction. CLI tests cover injected-reader use and
+help/version bypassing input reads.
 
 The previous concurrency commit initially could not be pushed because of DNS
 restrictions. At checkpoint start, local Git reported the concurrency branch
