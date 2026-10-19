@@ -1,6 +1,8 @@
 package dev.procrun.config;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Modifier;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -26,7 +28,24 @@ public class AutowireResolver {
 
     /** Will select an explicit binding, or the requested concrete class; reject incompatible bindings. */
     private Class<?> implementationFor(Class<?> type) {
-        throw new UnsupportedOperationException("Not implemented yet");
+        var binding = bindings.get(type);
+        var implementation = binding != null ? binding : type;
+        if(binding != null){
+            if(!type.isAssignableFrom(binding)){
+                throw new IllegalStateException("Implementation " + binding.getName()
+                        + " is not assignable to " + type.getName());
+            }
+        }
+
+        if(implementation.isInterface()){
+            throw new IllegalStateException("Cannot resolve interface " + implementation.getName()
+                    + " for requested type " + type.getName());
+        }
+        if(Modifier.isAbstract(implementation.getModifiers())){
+            throw new IllegalStateException("Cannot resolve abstract class " + implementation.getName()
+                    + " for requested type " + type.getName());
+        }
+        return implementation;
     }
 
     /** Will select one public annotated constructor, or the sole public constructor if unannotated. */
@@ -64,6 +83,16 @@ public class AutowireResolver {
 
     /** Will invoke the constructor and wrap reflective failures while preserving the original cause. */
     private Object instantiate(Constructor<?> constructor, Object[] arguments) {
-        throw new UnsupportedOperationException("Not implemented yet");
+        try {
+            return constructor.newInstance(arguments);
+        } catch (InvocationTargetException e) {
+            throw new IllegalStateException(
+                    "Constructor failed for " + constructor.getDeclaringClass().getName(),
+                    e.getCause());
+        } catch (InstantiationException | IllegalAccessException e) {
+            throw new IllegalStateException(
+                    "Cannot instantiate " + constructor.getDeclaringClass().getName(),
+                    e);
+        }
     }
 }
