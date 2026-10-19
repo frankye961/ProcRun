@@ -61,4 +61,9 @@ public class RunCommand implements Callable<Integer> {
         return new RunnerOptions(parallel, queueCapacity, Duration.ofSeconds(timeoutSeconds),
                 Duration.ofSeconds(graceSeconds), outputDirectory);
     }
+
+    private void run(){
+        var runnerOption = toRunnerOptions();
+
+    }
 }

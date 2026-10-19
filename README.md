@@ -1,5 +1,8 @@
 # ProcRun
 
+For the implementation checkpoint, see [completed work](docs/completed.md),
+[current work and resume point](docs/current.md), and [next steps](docs/next.md).
+
 ProcRun is a small Java CLI exercise for practising concurrency, JVM internals,
 core Java, and system programming. TSV input, CLI option conversion, and bounded
 concurrent process execution with results are implemented. CLI execution wiring is still
