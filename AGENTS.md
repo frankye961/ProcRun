@@ -1,5 +1,7 @@
 # ProcRun agent instructions
 
+- Before resuming, read `docs/current.md`, `docs/completed.md`, and `docs/next.md`
+  for the current checkpoint, accepted scope changes, and the user's learning workflow.
 - Preserve the skeleton-only boundary until implementation is explicitly requested.
 - Unimplemented concrete methods must throw `new UnsupportedOperationException("Not implemented yet")`.
 - Do not add operational resource initialization, parsing, file I/O, process execution,
