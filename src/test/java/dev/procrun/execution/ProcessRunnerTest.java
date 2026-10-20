@@ -15,6 +15,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -255,6 +257,86 @@ class ProcessRunnerTest {
         assertEquals(JobStatus.SUCCESS, second.status());
         assertEquals(firstOutput, first.outputFile().orElseThrow().getParent());
         assertEquals(secondOutput, second.outputFile().orElseThrow().getParent());
+    }
+
+    @Test
+    void timesOutAChildAndWaitsForItsTermination() throws Exception {
+        RunnerOptions options = new RunnerOptions(1, 1, Duration.ofMillis(300),
+                Duration.ZERO, outputDirectory());
+
+        JobResult result = new ProcessRunner().execute(
+                List.of(fixture("overdue", "sleep", "30000")), options).getFirst();
+
+        assertEquals(JobStatus.TIMED_OUT, result.status());
+        assertTrue(result.exitCode().isPresent());
+        assertTrue(result.duration().compareTo(options.perProcessTimeout()) >= 0);
+        assertTrue(result.errorMessage().orElseThrow().contains("timeout"));
+        assertTrue(Files.isRegularFile(result.outputFile().orElseThrow()));
+        assertFalse(ProcessHandle.of(result.pid().orElseThrow()).map(ProcessHandle::isAlive).orElse(false));
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {2, Long.MAX_VALUE})
+    @EnabledOnOs(OS.LINUX)
+    void allowsGracefulTerminationAndKeepsTimedOutStatus(long graceSeconds) throws Exception {
+        Path started = temporaryDirectory.resolve("shutdown-started");
+        Path finished = temporaryDirectory.resolve("shutdown-finished");
+        RunnerOptions options = new RunnerOptions(1, 1, Duration.ofSeconds(1),
+                Duration.ofSeconds(graceSeconds), outputDirectory());
+
+        JobResult result = new ProcessRunner().execute(List.of(fixture("graceful", "shutdown-delay",
+                started.toString(), finished.toString(), "200")), options).getFirst();
+
+        assertEquals(JobStatus.TIMED_OUT, result.status());
+        assertTrue(Files.exists(started), "Termination should run the child's shutdown hook");
+        assertTrue(Files.exists(finished), "Grace period should allow the child's hook to finish");
+        assertTrue(result.duration().compareTo(Duration.ofMillis(1200)) >= 0);
+        assertFalse(ProcessHandle.of(result.pid().orElseThrow()).map(ProcessHandle::isAlive).orElse(false));
+    }
+
+    @Test
+    @EnabledOnOs(OS.LINUX)
+    void forcesTerminationAfterGracePeriodExpires() throws Exception {
+        Path started = temporaryDirectory.resolve("shutdown-started");
+        Path finished = temporaryDirectory.resolve("shutdown-finished");
+        RunnerOptions options = new RunnerOptions(1, 1, Duration.ofSeconds(1),
+                Duration.ofMillis(300), outputDirectory());
+
+        JobResult result = new ProcessRunner().execute(List.of(fixture("stubborn", "shutdown-delay",
+                started.toString(), finished.toString(), "30000")), options).getFirst();
+
+        assertEquals(JobStatus.TIMED_OUT, result.status());
+        assertTrue(Files.exists(started), "Graceful termination must be requested first");
+        assertFalse(Files.exists(finished), "Force should stop the child before its hook finishes");
+        assertTrue(result.duration().compareTo(Duration.ofMillis(1300)) >= 0);
+        assertFalse(ProcessHandle.of(result.pid().orElseThrow()).map(ProcessHandle::isAlive).orElse(false));
+    }
+
+    @Test
+    void excludesQueueWaitingFromTimeoutAndContinuesAfterTimedOutJobs() throws Exception {
+        RunnerOptions options = new RunnerOptions(1, 1, Duration.ofSeconds(2),
+                Duration.ZERO, outputDirectory());
+
+        List<JobResult> results = new ProcessRunner().execute(List.of(
+                fixture("first", "sleep", "1200"), fixture("second", "sleep", "1200"),
+                fixture("overdue", "sleep", "30000"), fixture("next", "exit", "0")), options);
+
+        assertEquals(List.of(JobStatus.SUCCESS, JobStatus.SUCCESS, JobStatus.TIMED_OUT, JobStatus.SUCCESS),
+                results.stream().map(JobResult::status).toList());
+        assertEquals(List.of("first", "second", "overdue", "next"),
+                results.stream().map(JobResult::jobId).toList());
+    }
+
+    @Test
+    void supportsTimeoutDurationsTooLargeForNanosecondConversion() throws Exception {
+        RunnerOptions options = new RunnerOptions(1, 1, Duration.ofSeconds(Long.MAX_VALUE),
+                Duration.ZERO, outputDirectory());
+
+        JobResult result = new ProcessRunner().execute(
+                List.of(fixture("quick", "exit", "0")), options).getFirst();
+
+        assertEquals(JobStatus.SUCCESS, result.status());
+        assertEquals(0, result.exitCode().orElseThrow());
     }
 
     private void waitUntil(BooleanSupplier condition, String message) throws InterruptedException {

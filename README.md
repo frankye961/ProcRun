@@ -42,7 +42,10 @@ children on the submitting thread. Startup failures become individual failed
 results. On interruption or failure, unfinished tasks are cancelled and the runner
 waits for workers to clean up their children. Cleanup continues through repeated
 interruptions and preserves the interruption signal. Each batch releases its own
-executor; timeouts and runner-wide shutdown remain unimplemented.
+executor. Per-process timeouts request normal termination, allow the configured
+grace period, then force termination if needed. Results are finalized after
+termination; timed-out jobs keep `TIMED_OUT` status regardless of the final exit
+code. Runner-wide shutdown remains unimplemented.
 `JobSpec` validates nonblank IDs and executables and requires a nonempty command
 list. Other records remain skeletons; no defensive copies are made.
 
@@ -109,8 +112,9 @@ Exit code 0 means all jobs succeeded (including an empty batch); 1 means a job
 failed or the input could not be read. Input errors print a readable message to
 stderr. Built-in help and version do not read input or start children.
 
-Timeout and grace options are parsed and validated but not enforced yet.
-Shutdown-hook cleanup and JVM monitoring are also unfinished.
+Timeout starts after process launch; queue waiting does not consume it. Reported
+duration includes termination cleanup. A timed-out job makes the CLI exit 1, and
+later jobs can still run. Shutdown-hook cleanup and JVM monitoring are unfinished.
 
 ## TSV input
 
