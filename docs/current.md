@@ -1,6 +1,6 @@
 # Current checkpoint
 
-Checkpoint: 2026-10-19. Branch: `feature/cli-execution`.
+Checkpoint: 2026-10-20. Branch: `feature/cli-execution`.
 
 Read [completed.md](completed.md) for finished work and [next.md](next.md) for
 the remaining cards. These documents preserve decisions from the conversation;
@@ -21,10 +21,11 @@ The user explicitly requested Lombok and then a small custom constructor-DI
 exercise despite those not being part of the original skeleton scope. Do not
 expand that exercise into Spring or a general framework.
 
-## Current task: execution timeouts (card 11)
+## Current task: completion and cancellation races (card 12)
 
 The constructor-DI exercise is implemented, tested, and connected to the
-application bootstrap. Card 10 is complete; resume the timeout card next.
+application bootstrap. Cards 10 and 11 are complete; review the race-handling
+card next.
 
 Files:
 
@@ -61,26 +62,34 @@ Implemented and tested:
   Tests verify injection and reuse with different options without shared config.
 - Removed the unused private `run()` draft and unfinished CLI exception.
 
-The packaged JAR can run examples/jobs.tsv. Timeout/grace options are still only
-parsed and validated; they are not enforced. External shutdown, hooks, and JVM
-monitoring remain unfinished.
+The packaged JAR can run examples/jobs.tsv. Per-process timeouts now request
+normal termination, wait the grace period, and force termination if needed.
+Results remain TIMED_OUT regardless of final exit code and include cleanup time.
+Queue waiting does not consume the execution timeout. Java 25's waitFor(Duration)
+handles duration values without overflowing an explicit toNanos() conversion.
+External shutdown, hooks, and JVM monitoring remain unfinished.
 
 ## Exact next learning step
 
-Implement per-process timeout handling in `ProcessRunner` using each batch's
-options. Timeout starts when a child starts, not while queued. Follow card 11
-in [next.md](next.md); implement only the next small step requested by the user.
-Do not add scanning or extend the DI framework.
+Review completion/timeout/interruption races and one-terminal-result semantics
+in `ProcessRunner`, following card 12 in [next.md](next.md). External shutdown
+still belongs to card 13; implement only the next small step requested by the
+user. Do not add scanning or extend the DI framework.
 
 ## Verification and Git
 
-`mvn -B -ntp clean verify` passed: 87 tests, zero failures, errors, or skipped
+`mvn -B -ntp verify` passed: 93 tests, zero failures, errors, or skipped
 tests. Resolver tests cover constructor selection, bindings, nested dependencies,
 cycles, repeated dependencies, fresh instances, original constructor failures,
 and application-command construction. CLI tests cover injected-reader/runner use,
 reports, success/failure exit codes, malformed/missing input, empty files, and
 help/version bypassing input reads. Packaged help/version and example execution
 are also checked manually at this checkpoint.
+
+Timeout tests cover zero grace, graceful shutdown, forced termination, queue
+waiting, continued execution, and very large durations. Graceful/forced shutdown
+hook fixtures are Linux-only; the application's own shutdown hook is still
+unimplemented.
 
 The previous concurrency commit initially could not be pushed because of DNS
 restrictions. At checkpoint start, local Git reported the concurrency branch

@@ -1,9 +1,9 @@
 # Completed work
 
-Checkpoint: 2026-10-19. Read [current.md](current.md) before resuming and
+Checkpoint: 2026-10-20. Read [current.md](current.md) before resuming and
 [next.md](next.md) for the remaining work.
 
-## ProcRun cards 1–10
+## ProcRun cards 1–11
 
 - Created a single-module Maven project targeting Java 25 without preview features.
 - Added picocli, JUnit, and pinned compiler, Surefire, and Shade plugins.
@@ -34,6 +34,9 @@ Checkpoint: 2026-10-19. Read [current.md](current.md) before resuming and
   runner are injected. Runtime options belong to `execute(jobs, options)`, not
   the runner constructor. Reports preserve input order; success exits 0, job or
   input failures exit 1, and usage errors exit 2.
+- Implemented execution timeouts, graceful termination waits, and forced
+  termination. TIMED_OUT results are created after child termination and include
+  cleanup time. Queued time is excluded; following jobs continue normally.
 
 Bounded admission and cleanup are recorded in commit `8360b46`. GitHub remote:
 `https://github.com/frankye961/ProcRun.git`.
@@ -41,12 +44,12 @@ Bounded admission and cleanup are recorded in commit `8360b46`. GitHub remote:
 ## Important limits
 
 The CLI runs jobs and prints results. Help and version work without input I/O.
-Process timeouts, graceful termination policy, external runner-wide shutdown,
-shutdown hooks, and JVM monitoring are not implemented. Batch cleanup is already
+External runner-wide shutdown, application shutdown hooks, and JVM monitoring
+are not implemented. Batch cleanup and timeout termination are already
 implemented; it is distinct from the unfinished public `shutdown()` entry point.
 
-The suite has 87 tests covering input, models, CLI options/execution, child fixtures,
-execution, bounded admission, interruption, and constructor DI. The resolver is
+The suite has 93 tests covering input, models, CLI options/execution, child fixtures,
+execution, bounded admission, interruption, timeouts/grace periods, and constructor DI. The resolver is
 connected to the bootstrap with an explicit reader binding and an automatically
 resolved concrete runner; no class scanning
 or additional framework was added. See [current.md](current.md) for the resume point.

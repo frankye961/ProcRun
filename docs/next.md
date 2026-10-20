@@ -7,7 +7,7 @@ the assistant reviews it and adds tests when requested.
 
 The resolver is implemented, tested, and connected to the application bootstrap.
 `RunCommand` receives `JobFileReader` and `ProcessRunner` and is fully wired for
-batch execution and reporting. Continue with card 11.
+batch execution and reporting. Timeout handling is also implemented; continue with card 12.
 
 Only public constructors are supported. Keep explicit bindings; do not add
 classpath scanning, singleton scopes, field injection, or lifecycle machinery.
@@ -21,11 +21,12 @@ exit codes, and readable input errors are implemented and tested. The resolver
 creates the runner before parsing; CLI runtime options are passed separately to
 `execute(jobs, options)`. Keep that configuration per invocation.
 
-### Card 11: execution timeouts
+### Card 11 complete: execution timeouts
 
-- Timeout begins when the child starts; queue waiting does not consume it.
-- Request termination, wait the configured grace period, then force termination
-  if needed. Wait for termination before finalizing a `TIMED_OUT` result.
+- Timed process waits exclude queue time. Timeout requests normal termination,
+  waits the configured grace period, and forces termination when needed.
+- TIMED_OUT results are finalized only after termination, with full cleanup
+  duration. Tests cover graceful and forced paths, continuation, and large durations.
 
 ### Card 12: completion and cancellation races
 

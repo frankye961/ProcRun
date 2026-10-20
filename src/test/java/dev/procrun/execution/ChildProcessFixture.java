@@ -13,6 +13,23 @@ public final class ChildProcessFixture {
             case "exit" -> System.exit(Integer.parseInt(args[1]));
             case "sleep" -> Thread.sleep(Long.parseLong(args[1]));
             case "stdin" -> System.out.println(System.in.read());
+            case "shutdown-delay" -> {
+                Path started = Path.of(args[1]);
+                Path finished = Path.of(args[2]);
+                long delay = Long.parseLong(args[3]);
+                Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                    try {
+                        Files.writeString(started, "shutdown started");
+                        Thread.sleep(delay);
+                        Files.writeString(finished, "shutdown finished");
+                    } catch (IOException e) {
+                        throw new IllegalStateException(e);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }));
+                Thread.sleep(30000);
+            }
             case "gate" -> {
                 Path ready = Path.of(args[1]);
                 Path temporary = ready.resolveSibling(ready.getFileName() + ".tmp");

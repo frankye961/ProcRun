@@ -70,17 +70,34 @@ public class ProcessRunner {
         }
         Process process = startedJob.process();
         try {
-            int exitCode = process.waitFor();
+            boolean isFinished = isProcessFinished(process, options);
+            if (!isFinished) {
+                process.destroy();
+                // A timeout remains a timeout even if the child exits during its grace period.
+                if (!process.waitFor(options.terminationGracePeriod())) {
+                    process.destroyForcibly();
+                    process.waitFor();
+                }
+            }
+            int exitCode = process.exitValue();
+            JobStatus status = !isFinished ? JobStatus.TIMED_OUT
+                    : exitCode == 0 ? JobStatus.SUCCESS : JobStatus.FAILED;
             return new JobResult(job.jobId(), OptionalLong.of(process.pid()),
-                    exitCode == 0 ? JobStatus.SUCCESS : JobStatus.FAILED,
+                    status,
                     OptionalInt.of(exitCode), Duration.ofNanos(System.nanoTime() - started),
-                    Optional.of(startedJob.outputFile()), Optional.empty());
+                    Optional.of(startedJob.outputFile()),
+                    isFinished ? Optional.empty()
+                            : Optional.of("Execution exceeded timeout of " + options.perProcessTimeout()));
         } finally {
             if (process.isAlive()) {
                 process.destroyForcibly();
                 awaitChildTermination(process);
             }
         }
+    }
+
+    private boolean isProcessFinished(Process process, RunnerOptions options) throws InterruptedException {
+        return process.waitFor(options.perProcessTimeout());
     }
 
     private StartedJob startJob(JobSpec job, RunnerOptions options) throws IOException {
