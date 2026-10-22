@@ -19,7 +19,7 @@ public final class ChildProcessFixture {
                 long delay = Long.parseLong(args[3]);
                 Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                     try {
-                        Files.writeString(started, "shutdown started");
+                        Files.writeString(started, Long.toString(ProcessHandle.current().pid()));
                         Thread.sleep(delay);
                         Files.writeString(finished, "shutdown finished");
                     } catch (IOException e) {

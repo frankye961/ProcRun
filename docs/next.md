@@ -28,10 +28,17 @@ creates the runner before parsing; CLI runtime options are passed separately to
 - TIMED_OUT results are finalized only after termination, with full cleanup
   duration. Tests cover graceful and forced paths, continuation, and large durations.
 
-### Card 12: completion and cancellation races
+### Card 12 complete: completion and cancellation races
 
-- Define which terminal outcome wins; finalize each job once.
-- Test completion versus timeout/cancellation and shutdown during startup.
+- A job that finishes normally before its timeout reports its actual exit status.
+- Once its timeout expires, it remains TIMED_OUT even if it exits during grace.
+- Interrupting batch execution returns no partial result list. The interruption
+  propagates after unfinished tasks are cancelled and active direct children end.
+- Tests cover interruption during result collection/admission and while waiting
+  for graceful termination. The latter verifies forced cleanup finishes before
+  the caller receives InterruptedException.
+- Public shutdown during startup is deferred to card 13, since shutdown is not
+  implemented yet.
 
 ### Card 13: external runner shutdown
 

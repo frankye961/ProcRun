@@ -1,6 +1,6 @@
 # Current checkpoint
 
-Checkpoint: 2026-10-20. Branch: `feature/cli-execution`.
+Checkpoint: 2026-10-22. Branch: `feature/cli-execution`.
 
 Read [completed.md](completed.md) for finished work and [next.md](next.md) for
 the remaining cards. These documents preserve decisions from the conversation;
@@ -21,11 +21,11 @@ The user explicitly requested Lombok and then a small custom constructor-DI
 exercise despite those not being part of the original skeleton scope. Do not
 expand that exercise into Spring or a general framework.
 
-## Current task: completion and cancellation races (card 12)
+## Current task: external runner shutdown (card 13)
 
 The constructor-DI exercise is implemented, tested, and connected to the
-application bootstrap. Cards 10 and 11 are complete; review the race-handling
-card next.
+application bootstrap. Cards 10–12 are complete; the next card is external
+runner shutdown.
 
 Files:
 
@@ -71,14 +71,18 @@ External shutdown, hooks, and JVM monitoring remain unfinished.
 
 ## Exact next learning step
 
-Review completion/timeout/interruption races and one-terminal-result semantics
-in `ProcessRunner`, following card 12 in [next.md](next.md). External shutdown
-still belongs to card 13; implement only the next small step requested by the
-user. Do not add scanning or extend the DI framework.
+Card 12 is complete for the current batch lifecycle. A job that finishes
+normally reports its exit result; once its timeout expires it remains
+`TIMED_OUT`, including when it exits during the grace period. Interrupting a
+batch returns no partial result list: it propagates `InterruptedException` after
+cancelling unfinished tasks and waiting for direct-child cleanup. Tests cover
+interruption during result collection/admission and during timeout grace. The
+next learning step is card 13: external runner shutdown. Do not add scanning or
+extend the DI framework.
 
 ## Verification and Git
 
-`mvn -B -ntp verify` passed: 93 tests, zero failures, errors, or skipped
+`mvn -B -ntp verify` passed: 94 tests, zero failures, errors, or skipped
 tests. Resolver tests cover constructor selection, bindings, nested dependencies,
 cycles, repeated dependencies, fresh instances, original constructor failures,
 and application-command construction. CLI tests cover injected-reader/runner use,
