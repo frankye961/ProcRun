@@ -1,9 +1,9 @@
 # Completed work
 
-Checkpoint: 2026-10-20. Read [current.md](current.md) before resuming and
+Checkpoint: 2026-10-22. Read [current.md](current.md) before resuming and
 [next.md](next.md) for the remaining work.
 
-## ProcRun cards 1–11
+## ProcRun cards 1–12
 
 - Created a single-module Maven project targeting Java 25 without preview features.
 - Added picocli, JUnit, and pinned compiler, Surefire, and Shade plugins.
@@ -37,6 +37,10 @@ Checkpoint: 2026-10-20. Read [current.md](current.md) before resuming and
 - Implemented execution timeouts, graceful termination waits, and forced
   termination. TIMED_OUT results are created after child termination and include
   cleanup time. Queued time is excluded; following jobs continue normally.
+- Defined and tested lifecycle outcomes: timeout remains TIMED_OUT if the child
+  exits during grace; batch interruption returns no partial results and is
+  propagated only after direct-child cleanup. Added coverage for interruption
+  during timeout grace.
 
 Bounded admission and cleanup are recorded in commit `8360b46`. GitHub remote:
 `https://github.com/frankye961/ProcRun.git`.
@@ -48,7 +52,7 @@ External runner-wide shutdown, application shutdown hooks, and JVM monitoring
 are not implemented. Batch cleanup and timeout termination are already
 implemented; it is distinct from the unfinished public `shutdown()` entry point.
 
-The suite has 93 tests covering input, models, CLI options/execution, child fixtures,
+The suite has 94 tests covering input, models, CLI options/execution, child fixtures,
 execution, bounded admission, interruption, timeouts/grace periods, and constructor DI. The resolver is
 connected to the bootstrap with an explicit reader binding and an automatically
 resolved concrete runner; no class scanning

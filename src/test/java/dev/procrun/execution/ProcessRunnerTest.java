@@ -229,6 +229,41 @@ class ProcessRunnerTest {
     }
 
     @Test
+    @EnabledOnOs(OS.LINUX)
+    void interruptionDuringTimeoutGraceForcesChildCleanupBeforePropagating() throws Exception {
+        Path started = temporaryDirectory.resolve("shutdown-started");
+        Path finished = temporaryDirectory.resolve("shutdown-finished");
+        ProcessRunner runner = new ProcessRunner();
+        RunnerOptions options = new RunnerOptions(1, 1, Duration.ofMillis(300),
+                Duration.ofSeconds(10), outputDirectory());
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread caller = Thread.ofPlatform().name("timeout-grace-interruption-test").start(() -> {
+            try {
+                runner.execute(List.of(fixture("slow-shutdown", "shutdown-delay",
+                        started.toString(), finished.toString(), "30000")), options);
+            } catch (Throwable e) {
+                failure.set(e);
+            }
+        });
+        try {
+            waitUntil(() -> Files.exists(started), "Timeout should request graceful child termination");
+            long pid = Long.parseLong(Files.readString(started));
+            caller.interrupt();
+            caller.join(5000);
+
+            assertFalse(caller.isAlive(), "Interrupted batch caller did not finish cleanup");
+            assertInstanceOf(InterruptedException.class, failure.get());
+            assertFalse(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false),
+                    "Interrupted timeout cleanup must stop its direct child before returning");
+            assertFalse(Files.exists(finished), "Interruption should force-stop the child during its hook");
+        } finally {
+            caller.interrupt();
+            caller.join(5000);
+            assertFalse(caller.isAlive(), "Batch caller leaked after cleanup");
+        }
+    }
+
+    @Test
     void rejectsAnAlreadyInterruptedCallerBeforeStartingChildren() throws Exception {
         ProcessRunner runner = new ProcessRunner();
         JobSpec job = fixture("job", "exit", "0");
